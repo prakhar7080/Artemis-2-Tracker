@@ -106,9 +106,33 @@
       z-index: 0;
       background: #000;
     }
+
+    /* Hide A-Frame’s default XR/VR UI button (mobile) */
+    .a-enter-vr-button,
+    .a-enter-ar-button,
+    .a-enter-vr,
+    .a-enter-ar {
+      display: none !important;
+      visibility: hidden !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
+
+    /* 2D selection rectangle overlay */
+    #selectionRect {
+      position: fixed;
+      z-index: 25;
+      border: 2px solid #ffffff;
+      border-radius: 6px;
+      box-sizing: border-box;
+      pointer-events: none;
+      display: none;
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.7), 0 0 14px rgba(255,255,255,0.25);
+    }
   </style>
 </head>
 <body>
+  <div id="selectionRect"></div>
   <div id="ui">
     <div class="row"><span class="label">Mode</span><span id="modeValue" class="value">Mission view</span></div>
     <div class="row"><span class="label">Data points</span><span id="countValue" class="value">Loading...</span></div>
@@ -134,6 +158,7 @@
     id="scene"
     renderer="antialias: true; colorManagement: true"
     vr-mode-ui="enabled: false"
+    xr-mode-ui="enabled: false"
     embedded
     background="color: #01030a"
   >
@@ -198,7 +223,8 @@
       scaleFactor: 1,
       pathVisible: true,
       cameraDistance: 9.5,
-      pinchDistancePx: null
+      pinchDistancePx: null,
+      selectedKey: "earth"
     };
 
     const ui = {
@@ -223,7 +249,8 @@
       artemisLabel: document.getElementById("artemisLabel"),
       earthLabel: document.getElementById("earthLabel"),
       moonLabel: document.getElementById("moonLabel"),
-      trajectoryLine: document.getElementById("trajectoryLine")
+      trajectoryLine: document.getElementById("trajectoryLine"),
+      selectionRect: document.getElementById("selectionRect")
     };
 
     function setStatus(text, tone = "ok") {
@@ -250,11 +277,115 @@
       return (rad * 180) / Math.PI;
     }
 
+    function getSelectedObject3D() {
+      if (state.selectedKey === "moon") return el.moon.object3D;
+      if (state.selectedKey === "artemis") return el.artemis.object3D;
+      return el.earth.object3D;
+    }
+
+    function getWorldPos(obj3d) {
+      const v = new THREE.Vector3();
+      obj3d.getWorldPosition(v);
+      return v;
+    }
+
+    function setSelected(key) {
+      state.selectedKey = key;
+      // Visible highlight via emissive intensity
+      el.earth.setAttribute("emissive-intensity", key === "earth" ? "0.9" : "0.55");
+      el.moon.setAttribute("emissive-intensity", key === "moon" ? "0.55" : "0.28");
+      // 2D rect updates each frame; make it visible on first selection
+      el.selectionRect.style.display = "block";
+    }
+
+    function updateSelectionRect2D() {
+      const rectEl = el.selectionRect;
+      if (!rectEl) return;
+      const target = getSelectedObject3D();
+      const cam = el.camera.getObject3D("camera");
+      const sceneEl = document.getElementById("scene");
+      const canvas = sceneEl?.canvas;
+      if (!target || !cam || !canvas) return;
+
+      const box3 = new THREE.Box3().setFromObject(target);
+      if (box3.isEmpty()) {
+        rectEl.style.display = "none";
+        return;
+      }
+
+      // Project 8 corners of the world AABB to screen and take min/max.
+      const corners = [
+        new THREE.Vector3(box3.min.x, box3.min.y, box3.min.z),
+        new THREE.Vector3(box3.min.x, box3.min.y, box3.max.z),
+        new THREE.Vector3(box3.min.x, box3.max.y, box3.min.z),
+        new THREE.Vector3(box3.min.x, box3.max.y, box3.max.z),
+        new THREE.Vector3(box3.max.x, box3.min.y, box3.min.z),
+        new THREE.Vector3(box3.max.x, box3.min.y, box3.max.z),
+        new THREE.Vector3(box3.max.x, box3.max.y, box3.min.z),
+        new THREE.Vector3(box3.max.x, box3.max.y, box3.max.z)
+      ];
+
+      const rect = canvas.getBoundingClientRect();
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      let anyInFront = false;
+      for (let i = 0; i < corners.length; i++) {
+        const p = corners[i].project(cam);
+        if (p.z < 1) anyInFront = true;
+        const x = rect.left + (p.x * 0.5 + 0.5) * rect.width;
+        const y = rect.top + (-p.y * 0.5 + 0.5) * rect.height;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+
+      if (!anyInFront) {
+        rectEl.style.display = "none";
+        return;
+      }
+
+      // Clamp to viewport and add padding.
+      const pad = 10;
+      minX = clamp(minX - pad, 0, window.innerWidth);
+      minY = clamp(minY - pad, 0, window.innerHeight);
+      maxX = clamp(maxX + pad, 0, window.innerWidth);
+      maxY = clamp(maxY + pad, 0, window.innerHeight);
+
+      const w = Math.max(0, maxX - minX);
+      const h = Math.max(0, maxY - minY);
+      if (w < 4 || h < 4) {
+        rectEl.style.display = "none";
+        return;
+      }
+
+      rectEl.style.display = "block";
+      rectEl.style.left = minX.toFixed(1) + "px";
+      rectEl.style.top = minY.toFixed(1) + "px";
+      rectEl.style.width = w.toFixed(1) + "px";
+      rectEl.style.height = h.toFixed(1) + "px";
+    }
+
     function setCameraDistance(distance) {
       const clamped = clamp(distance, CONFIG.zoom.min, CONFIG.zoom.max);
       state.cameraDistance = clamped;
-      el.cameraRig.object3D.position.setZ(clamped);
       ui.zoomValue.textContent = clamped.toFixed(1) + "x";
+    }
+
+    function dollyZoomTowardSelected(delta) {
+      const focus = getWorldPos(getSelectedObject3D());
+      const cam = getWorldPos(el.camera.object3D);
+      const dir = focus.clone().sub(cam);
+      const dist = dir.length();
+      if (!Number.isFinite(dist) || dist < 1e-4) return;
+      dir.normalize();
+
+      const desired = clamp(dist + delta, CONFIG.zoom.min, CONFIG.zoom.max);
+      const move = dist - desired; // positive moves toward focus
+      if (Math.abs(move) < 1e-6) return;
+
+      el.cameraRig.object3D.position.addScaledVector(dir, move);
+      state.cameraDistance = desired;
+      ui.zoomValue.textContent = desired.toFixed(1) + "x";
     }
 
     function pinchDistance(t0, t1) {
@@ -266,16 +397,27 @@
     function bindZoomControls() {
       setCameraDistance(CONFIG.zoom.default);
 
-      ui.zoomInBtn.addEventListener("click", () => setCameraDistance(state.cameraDistance - CONFIG.zoom.stepButton));
-      ui.zoomOutBtn.addEventListener("click", () => setCameraDistance(state.cameraDistance + CONFIG.zoom.stepButton));
-      ui.zoomResetBtn.addEventListener("click", () => setCameraDistance(CONFIG.zoom.default));
+      ui.zoomInBtn.addEventListener("click", () => dollyZoomTowardSelected(-CONFIG.zoom.stepButton));
+      ui.zoomOutBtn.addEventListener("click", () => dollyZoomTowardSelected(CONFIG.zoom.stepButton));
+      ui.zoomResetBtn.addEventListener("click", () => {
+        const focus = getWorldPos(getSelectedObject3D());
+        const cam = getWorldPos(el.camera.object3D);
+        const dir = focus.clone().sub(cam);
+        const dist = dir.length();
+        if (!Number.isFinite(dist) || dist < 1e-4) return;
+        const desired = CONFIG.zoom.default;
+        const move = dist - desired;
+        el.cameraRig.object3D.position.addScaledVector(dir.normalize(), move);
+        state.cameraDistance = desired;
+        ui.zoomValue.textContent = desired.toFixed(1) + "x";
+      });
 
       const sceneEl = document.getElementById("scene");
       sceneEl.addEventListener(
         "wheel",
         (event) => {
           event.preventDefault();
-          setCameraDistance(state.cameraDistance + event.deltaY * CONFIG.zoom.wheelScale);
+          dollyZoomTowardSelected(event.deltaY * CONFIG.zoom.wheelScale);
         },
         { passive: false }
       );
@@ -290,7 +432,7 @@
           const current = pinchDistance(event.touches[0], event.touches[1]);
           if (state.pinchDistancePx != null) {
             const delta = state.pinchDistancePx - current;
-            setCameraDistance(state.cameraDistance + delta * CONFIG.zoom.pinchScale);
+            dollyZoomTowardSelected(delta * CONFIG.zoom.pinchScale);
           }
           state.pinchDistancePx = current;
         },
@@ -300,6 +442,54 @@
       window.addEventListener("touchend", () => {
         state.pinchDistancePx = null;
       });
+    }
+
+    function bindSelectionControls() {
+      const sceneEl = document.getElementById("scene");
+      const raycaster = new THREE.Raycaster();
+      const ndc = new THREE.Vector2();
+
+      function pick(clientX, clientY) {
+        const canvas = sceneEl.canvas;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+        ndc.y = -(((clientY - rect.top) / rect.height) * 2 - 1);
+
+        const cam = el.camera.getObject3D("camera");
+        if (!cam) return;
+        raycaster.setFromCamera(ndc, cam);
+
+        const meshes = [];
+        el.earth.object3D.traverse((o) => o.isMesh && meshes.push(o));
+        el.moon.object3D.traverse((o) => o.isMesh && meshes.push(o));
+        el.artemis.object3D.traverse((o) => o.isMesh && meshes.push(o));
+
+        const hits = raycaster.intersectObjects(meshes, true);
+        if (!hits.length) return;
+
+        let o = hits[0].object;
+        while (o) {
+          if (o === el.earth.object3D) return setSelected("earth");
+          if (o === el.moon.object3D) return setSelected("moon");
+          if (o === el.artemis.object3D) return setSelected("artemis");
+          o = o.parent;
+        }
+      }
+
+      sceneEl.addEventListener("click", (e) => pick(e.clientX, e.clientY));
+      sceneEl.addEventListener(
+        "touchend",
+        (e) => {
+          if (e.changedTouches.length !== 1) return;
+          const t = e.changedTouches[0];
+          pick(t.clientX, t.clientY);
+        },
+        { passive: true }
+      );
+
+      // Default selection highlight
+      setSelected("earth");
     }
 
     function parseAscEphemeris(rawText) {
@@ -558,6 +748,7 @@
       updateArtemisFromTime(currentUnixMs);
       updateMoon();
       faceLabelsToCamera();
+      updateSelectionRect2D();
       requestAnimationFrame(animate);
     }
 
@@ -565,6 +756,7 @@
       ui.modeValue.textContent = "Mission view";
       bindUi();
       bindZoomControls();
+      bindSelectionControls();
       await loadAscTrajectory();
       requestAnimationFrame(animate);
     }
