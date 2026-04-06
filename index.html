@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Artemis Mission Viewer</title>
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  <style>
+    :root {
+      --panel: rgba(7, 10, 16, 0.82);
+      --line: rgba(255, 255, 255, 0.14);
+      --text: #f3f7ff;
+      --muted: #9db2d6;
+      --ok: #7ee787;
+      --warn: #ffd166;
+      --bad: #ff6b6b;
+      --accent: #2ab8ff;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+      color: var(--text);
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+    }
+
+    #ui {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 30;
+      width: min(360px, calc(100vw - 24px));
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      backdrop-filter: blur(8px);
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .value {
+      color: var(--text);
+      font-size: 13px;
+      text-align: right;
+    }
+
+    #status {
+      margin: 6px 0 10px;
+      font-size: 13px;
+      color: var(--ok);
+      min-height: 16px;
+    }
+
+    #controls {
+      display: grid;
+      gap: 8px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #fff;
+      padding: 9px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    button[disabled] {
+      opacity: 0.6;
+      cursor: default;
+    }
+
+    .toggle-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+
+    #scene {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background: #000;
+    }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <div class="row"><span class="label">Mode</span><span id="modeValue" class="value">Mission view</span></div>
+    <div class="row"><span class="label">Data points</span><span id="countValue" class="value">Loading...</span></div>
+    <div class="row"><span class="label">State time (UTC)</span><span id="timeValue" class="value">--</span></div>
+    <div class="row"><span class="label">Range from Earth</span><span id="rangeValue" class="value">--</span></div>
+    <div class="row"><span class="label">Zoom</span><span id="zoomValue" class="value">9.5x</span></div>
+    <div id="status">Initializing...</div>
+
+    <div id="controls">
+      <div class="toggle-row">
+        <span class="label">Show trajectory</span>
+        <input id="pathToggle" type="checkbox" checked />
+      </div>
+      <div class="toggle-row">
+        <button id="zoomInBtn" type="button">Zoom In</button>
+        <button id="zoomOutBtn" type="button">Zoom Out</button>
+        <button id="zoomResetBtn" type="button">Reset</button>
+      </div>
+    </div>
+  </div>
+
+  <a-scene
+    id="scene"
+    renderer="antialias: true; colorManagement: true"
+    vr-mode-ui="enabled: false"
+    embedded
+    background="color: #01030a"
+  >
+    <a-assets>
+      <img id="earthTex" crossorigin="anonymous" src="https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg" />
+      <img id="moonTex" crossorigin="anonymous" src="https://threejs.org/examples/textures/planets/moon_1024.jpg" />
+    </a-assets>
+
+    <a-entity id="cameraRig" position="0 0.9 9.5">
+      <a-entity
+        id="camera"
+        camera="active: true"
+        look-controls="enabled: true; touchEnabled: true; magicWindowTrackingEnabled: false; reverseMouseDrag: false; pointerLockEnabled: false"
+      ></a-entity>
+    </a-entity>
+
+    <a-entity id="spaceRoot">
+      <a-sphere id="earth" position="0 0 0" radius="0.6" material="src: #earthTex; roughness: 0.95; metalness: 0.02"></a-sphere>
+      <a-sphere id="moon" position="3.2 0.4 -1.2" radius="0.2" material="src: #moonTex; roughness: 1.0; metalness: 0.0"></a-sphere>
+      <a-entity id="artemis">
+        <a-cylinder radius="0.045" height="0.28" color="#f4f4f2" rotation="0 0 90"></a-cylinder>
+        <a-cone radius-bottom="0.045" radius-top="0.01" height="0.09" color="#d9d9d6" rotation="0 0 90" position="0.17 0 0"></a-cone>
+        <a-cylinder radius="0.05" height="0.02" color="#c07f2f" rotation="0 0 90" position="-0.12 0 0"></a-cylinder>
+        <a-box depth="0.01" height="0.12" width="0.18" color="#2a4f97" position="-0.03 0.11 0"></a-box>
+        <a-box depth="0.01" height="0.12" width="0.18" color="#2a4f97" position="-0.03 -0.11 0"></a-box>
+      </a-entity>
+      <a-entity id="trajectoryLine"></a-entity>
+
+      <a-entity id="earthLabel" text="value: Earth; align: center; width: 5; color: #9ec5ff" position="0 1.35 0"></a-entity>
+      <a-entity id="moonLabel" text="value: Moon; align: center; width: 5; color: #c7cbd1" position="3.2 0.85 -1.2"></a-entity>
+      <a-entity id="artemisLabel" text="value: Artemis; align: center; width: 5; color: #ffe46b" position="0 0.45 0"></a-entity>
+    </a-entity>
+
+    <a-sky color="#020511"></a-sky>
+  </a-scene>
+
+  <script>
+    const CONFIG = {
+      trajectoryAscUrl: "Artemis_II_OEM_2026_04_04_to_EI.asc",
+      earthRadiusVisual: 0.6,
+      moonRadiusVisual: 0.2,
+      pathColor: 0x2af5ff,
+      pathOpacity: 0.95,
+      pathMaxRenderPoints: 9000,
+      moonEstimateWindow: 50,
+      earthRadiusKm: 6378.137,
+      zoom: {
+        min: 3.2,
+        max: 26,
+        stepButton: 1.2,
+        wheelScale: 0.015,
+        pinchScale: 0.01,
+        default: 9.5
+      }
+    };
+
+    const state = {
+      samples: [],
+      trajectoryScaled: null,
+      timesMs: [],
+      pointCount: 0,
+      scaleFactor: 1,
+      pathVisible: true,
+      cameraDistance: 9.5,
+      pinchDistancePx: null
+    };
+
+    const ui = {
+      modeValue: document.getElementById("modeValue"),
+      countValue: document.getElementById("countValue"),
+      timeValue: document.getElementById("timeValue"),
+      rangeValue: document.getElementById("rangeValue"),
+      zoomValue: document.getElementById("zoomValue"),
+      status: document.getElementById("status"),
+      pathToggle: document.getElementById("pathToggle"),
+      zoomInBtn: document.getElementById("zoomInBtn"),
+      zoomOutBtn: document.getElementById("zoomOutBtn"),
+      zoomResetBtn: document.getElementById("zoomResetBtn")
+    };
+
+    const el = {
+      cameraRig: document.getElementById("cameraRig"),
+      camera: document.getElementById("camera"),
+      earth: document.getElementById("earth"),
+      moon: document.getElementById("moon"),
+      artemis: document.getElementById("artemis"),
+      artemisLabel: document.getElementById("artemisLabel"),
+      earthLabel: document.getElementById("earthLabel"),
+      moonLabel: document.getElementById("moonLabel"),
+      trajectoryLine: document.getElementById("trajectoryLine")
+    };
+
+    function setStatus(text, tone = "ok") {
+      ui.status.textContent = text;
+      if (tone === "warn") ui.status.style.color = "var(--warn)";
+      else if (tone === "bad") ui.status.style.color = "var(--bad)";
+      else ui.status.style.color = "var(--ok)";
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function normalizeDeg(deg) {
+      const n = deg % 360;
+      return n < 0 ? n + 360 : n;
+    }
+
+    function degToRad(deg) {
+      return (deg * Math.PI) / 180;
+    }
+
+    function radToDeg(rad) {
+      return (rad * 180) / Math.PI;
+    }
+
+    function setCameraDistance(distance) {
+      const clamped = clamp(distance, CONFIG.zoom.min, CONFIG.zoom.max);
+      state.cameraDistance = clamped;
+      el.cameraRig.object3D.position.setZ(clamped);
+      ui.zoomValue.textContent = clamped.toFixed(1) + "x";
+    }
+
+    function pinchDistance(t0, t1) {
+      const dx = t0.clientX - t1.clientX;
+      const dy = t0.clientY - t1.clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function bindZoomControls() {
+      setCameraDistance(CONFIG.zoom.default);
+
+      ui.zoomInBtn.addEventListener("click", () => setCameraDistance(state.cameraDistance - CONFIG.zoom.stepButton));
+      ui.zoomOutBtn.addEventListener("click", () => setCameraDistance(state.cameraDistance + CONFIG.zoom.stepButton));
+      ui.zoomResetBtn.addEventListener("click", () => setCameraDistance(CONFIG.zoom.default));
+
+      const sceneEl = document.getElementById("scene");
+      sceneEl.addEventListener(
+        "wheel",
+        (event) => {
+          event.preventDefault();
+          setCameraDistance(state.cameraDistance + event.deltaY * CONFIG.zoom.wheelScale);
+        },
+        { passive: false }
+      );
+
+      window.addEventListener(
+        "touchmove",
+        (event) => {
+          if (event.touches.length !== 2) {
+            state.pinchDistancePx = null;
+            return;
+          }
+          const current = pinchDistance(event.touches[0], event.touches[1]);
+          if (state.pinchDistancePx != null) {
+            const delta = state.pinchDistancePx - current;
+            setCameraDistance(state.cameraDistance + delta * CONFIG.zoom.pinchScale);
+          }
+          state.pinchDistancePx = current;
+        },
+        { passive: true }
+      );
+
+      window.addEventListener("touchend", () => {
+        state.pinchDistancePx = null;
+      });
+    }
+
+    function parseAscEphemeris(rawText) {
+      const lines = rawText.split(/\r?\n/);
+      const out = [];
+      const re = /^(\d{4}-\d{2}-\d{2}T[\d:.]+)\s+([-+Ee0-9.]+)\s+([-+Ee0-9.]+)\s+([-+Ee0-9.]+)/;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line || line.startsWith("CCSDS_") || line.includes("=") || line.startsWith("COMMENT") || line.startsWith("META_")) {
+          continue;
+        }
+        const m = line.match(re);
+        if (!m) continue;
+        const timeMs = Date.parse(m[1] + "Z");
+        const x = Number(m[2]);
+        const y = Number(m[3]);
+        const z = Number(m[4]);
+        if (Number.isFinite(timeMs) && Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+          out.push({ timeMs, x, y, z });
+        }
+      }
+      return out.sort((a, b) => a.timeMs - b.timeMs);
+    }
+
+    function computeScaleFactor(samples) {
+      let maxR = 0;
+      for (let i = 0; i < samples.length; i++) {
+        const p = samples[i];
+        const r = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+        if (r > maxR) maxR = r;
+      }
+      if (!Number.isFinite(maxR) || maxR <= 0) return 1;
+      const targetMaxRadius = 6.2;
+      return targetMaxRadius / maxR;
+    }
+
+    function buildScaledTrajectory(samples, scale) {
+      const out = new Float32Array(samples.length * 3);
+      for (let i = 0; i < samples.length; i++) {
+        const b = i * 3;
+        out[b] = samples[i].x * scale;
+        out[b + 1] = samples[i].y * scale;
+        out[b + 2] = samples[i].z * scale;
+      }
+      return out;
+    }
+
+    function createTrajectoryLine(positions) {
+      const totalPoints = positions.length / 3;
+      const stride = Math.max(1, Math.ceil(totalPoints / CONFIG.pathMaxRenderPoints));
+      const sampled = [];
+      for (let i = 0; i < totalPoints; i += stride) {
+        const src = i * 3;
+        sampled.push(new THREE.Vector3(positions[src], positions[src + 1], positions[src + 2]));
+      }
+      if (sampled.length < 2) return;
+
+      const lastSrc = (totalPoints - 1) * 3;
+      sampled[sampled.length - 1].set(positions[lastSrc], positions[lastSrc + 1], positions[lastSrc + 2]);
+
+      const curve = new THREE.CatmullRomCurve3(sampled, false, "centripetal", 0.5);
+      const smoothCount = Math.min(12000, Math.max(sampled.length * 4, sampled.length + 32));
+      const smoothPoints = curve.getPoints(smoothCount);
+      const lineArray = new Float32Array(smoothPoints.length * 3);
+      for (let i = 0; i < smoothPoints.length; i++) {
+        const p = smoothPoints[i];
+        const b = i * 3;
+        lineArray[b] = p.x;
+        lineArray[b + 1] = p.y;
+        lineArray[b + 2] = p.z;
+      }
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.BufferAttribute(lineArray, 3));
+      const material = new THREE.LineBasicMaterial({
+        color: CONFIG.pathColor,
+        transparent: true,
+        opacity: CONFIG.pathOpacity
+      });
+      const line = new THREE.Line(geometry, material);
+      line.frustumCulled = false;
+
+      const old = el.trajectoryLine.getObject3D("mesh");
+      if (old) {
+        old.geometry.dispose();
+        old.material.dispose();
+      }
+      el.trajectoryLine.setObject3D("mesh", line);
+      el.trajectoryLine.object3D.visible = state.pathVisible;
+    }
+
+    function estimateMoonPositionFromTrajectory(positions) {
+      const n = positions.length / 3;
+      if (n < 3) return new THREE.Vector3(3.2, 0.4, -1.2);
+
+      let maxR = -Infinity;
+      let maxIndex = 0;
+      for (let i = 0; i < n; i++) {
+        const b = i * 3;
+        const x = positions[b];
+        const y = positions[b + 1];
+        const z = positions[b + 2];
+        const r2 = x * x + y * y + z * z;
+        if (r2 > maxR) {
+          maxR = r2;
+          maxIndex = i;
+        }
+      }
+
+      const half = CONFIG.moonEstimateWindow;
+      const iStart = Math.max(0, maxIndex - half);
+      const iEnd = Math.min(n - 1, maxIndex + half);
+      let sx = 0;
+      let sy = 0;
+      let sz = 0;
+      let count = 0;
+      for (let i = iStart; i <= iEnd; i++) {
+        const b = i * 3;
+        sx += positions[b];
+        sy += positions[b + 1];
+        sz += positions[b + 2];
+        count++;
+      }
+      return new THREE.Vector3(sx / count, sy / count, sz / count);
+    }
+
+    async function loadAscTrajectory() {
+      setStatus("Loading ASC ephemeris...");
+      try {
+        const res = await fetch(CONFIG.trajectoryAscUrl, { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const txt = await res.text();
+        const parsed = parseAscEphemeris(txt);
+        if (parsed.length < 2) throw new Error("Not enough ephemeris records");
+
+        state.samples = parsed;
+        state.timesMs = parsed.map((s) => s.timeMs);
+        state.pointCount = parsed.length;
+        state.scaleFactor = computeScaleFactor(parsed);
+        state.trajectoryScaled = buildScaledTrajectory(parsed, state.scaleFactor);
+
+        ui.countValue.textContent = String(state.pointCount);
+        setStatus("Ephemeris loaded");
+
+        el.earth.setAttribute("radius", String(CONFIG.earthRadiusVisual));
+        el.moon.setAttribute("radius", String(CONFIG.moonRadiusVisual));
+
+        const moonPos = estimateMoonPositionFromTrajectory(state.trajectoryScaled);
+        el.moon.object3D.position.copy(moonPos);
+        el.moonLabel.object3D.position.set(moonPos.x, moonPos.y + 0.34, moonPos.z);
+
+        createTrajectoryLine(state.trajectoryScaled);
+        updateArtemisFromTime(Date.now());
+      } catch (error) {
+        state.samples = [];
+        state.timesMs = [];
+        state.trajectoryScaled = null;
+        state.pointCount = 0;
+        ui.countValue.textContent = "Load failed";
+        setStatus("Load failed: " + error.message, "bad");
+      }
+    }
+
+    function lerp(a, b, t) {
+      return a + (b - a) * t;
+    }
+
+    function getInterpolatedScaledPositionByIndex(i0, i1, t) {
+      const a = i0 * 3;
+      const b = i1 * 3;
+      return {
+        x: lerp(state.trajectoryScaled[a], state.trajectoryScaled[b], t),
+        y: lerp(state.trajectoryScaled[a + 1], state.trajectoryScaled[b + 1], t),
+        z: lerp(state.trajectoryScaled[a + 2], state.trajectoryScaled[b + 2], t)
+      };
+    }
+
+    function getInterpolatedEciKmByTime(nowMs) {
+      if (state.pointCount < 2) return null;
+      const times = state.timesMs;
+      if (nowMs <= times[0]) return { ...state.samples[0], clamped: true };
+      if (nowMs >= times[times.length - 1]) return { ...state.samples[state.samples.length - 1], clamped: true };
+
+      let lo = 0;
+      let hi = times.length - 1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (times[mid] < nowMs) lo = mid + 1;
+        else hi = mid - 1;
+      }
+
+      const i1 = Math.max(1, lo);
+      const i0 = i1 - 1;
+      const t0 = times[i0];
+      const t1 = times[i1];
+      const t = (nowMs - t0) / (t1 - t0);
+      const p0 = state.samples[i0];
+      const p1 = state.samples[i1];
+      return {
+        timeMs: nowMs,
+        x: lerp(p0.x, p1.x, t),
+        y: lerp(p0.y, p1.y, t),
+        z: lerp(p0.z, p1.z, t),
+        i0,
+        i1,
+        t,
+        clamped: false
+      };
+    }
+
+    function updateArtemisFromTime(nowMs) {
+      const eciNow = getInterpolatedEciKmByTime(nowMs);
+      if (!eciNow) return;
+
+      ui.timeValue.textContent = new Date(nowMs).toISOString().replace(".000", "");
+      const rangeKm = Math.sqrt(eciNow.x * eciNow.x + eciNow.y * eciNow.y + eciNow.z * eciNow.z);
+      ui.rangeValue.textContent = `${Math.round(rangeKm).toLocaleString()} km`;
+
+      if (eciNow.clamped) {
+        setStatus("Current time outside ephemeris range, showing nearest valid state", "warn");
+      } else {
+        setStatus("Tracking real-time spacecraft state");
+      }
+
+      const i0 = eciNow.i0 ?? 0;
+      const i1 = eciNow.i1 ?? 0;
+      const t = eciNow.t ?? 0;
+      const p = getInterpolatedScaledPositionByIndex(i0, i1, t);
+      el.artemis.object3D.position.set(p.x, p.y, p.z);
+      el.artemisLabel.object3D.position.set(p.x, p.y + 0.25, p.z);
+    }
+
+    function updateMoon() {
+      const p = el.moon.object3D.position;
+      el.moonLabel.object3D.position.set(p.x, p.y + 0.34, p.z);
+    }
+
+    function faceLabelsToCamera() {
+      const camPos = new THREE.Vector3();
+      el.camera.object3D.getWorldPosition(camPos);
+      el.earthLabel.object3D.lookAt(camPos);
+      el.moonLabel.object3D.lookAt(camPos);
+      el.artemisLabel.object3D.lookAt(camPos);
+    }
+
+    function bindUi() {
+      ui.pathToggle.addEventListener("change", () => {
+        state.pathVisible = ui.pathToggle.checked;
+        el.trajectoryLine.object3D.visible = state.pathVisible;
+      });
+    }
+
+    function animate() {
+      const currentUnixMs = Date.now();
+      updateArtemisFromTime(currentUnixMs);
+      updateMoon();
+      faceLabelsToCamera();
+      requestAnimationFrame(animate);
+    }
+
+    async function init() {
+      ui.modeValue.textContent = "Mission view";
+      bindUi();
+      bindZoomControls();
+      await loadAscTrajectory();
+      requestAnimationFrame(animate);
+    }
+
+    window.addEventListener("load", init);
+  </script>
+</body>
+</html>
