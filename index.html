@@ -200,6 +200,7 @@
       trajectoryAscUrl: "Artemis_II_OEM_2026_04_04_to_EI.asc",
       earthRadiusVisual: 0.6,
       moonRadiusVisual: 0.2,
+      moonDistanceKm: 384400,
       pathColor: 0x2af5ff,
       pathOpacity: 0.95,
       pathMaxRenderPoints: 9000,
@@ -212,6 +213,15 @@
         wheelScale: 0.015,
         pinchScale: 0.01,
         default: 9.5
+      },
+      stars: {
+        count: 900,
+        innerRadius: 28,
+        outerRadius: 60
+      },
+      meteors: {
+        spawnEveryMs: 2200,
+        maxActive: 12
       }
     };
 
@@ -224,7 +234,13 @@
       pathVisible: true,
       cameraDistance: 9.5,
       pinchDistancePx: null,
-      selectedKey: "earth"
+      selectedKey: "earth",
+      starsPoints: null,
+      starBaseSizes: null,
+      meteorGroup: null,
+      meteors: [],
+      lastMeteorSpawnMs: 0,
+      lastFrameMs: 0
     };
 
     const ui = {
@@ -617,6 +633,47 @@
       return new THREE.Vector3(sx / count, sy / count, sz / count);
     }
 
+    function estimateMoonDirectionFromTrajectory(positions) {
+      const p = estimateMoonPositionFromTrajectory(positions);
+      if (p.lengthSq() < 1e-10) return new THREE.Vector3(1, 0, 0);
+      return p.normalize();
+    }
+
+    function estimateMoonDirectionAtLunarDistance(positions, targetRadius) {
+      // Pick direction from trajectory point(s) nearest the Earth-Moon distance.
+      const n = positions.length / 3;
+      if (n < 3) return estimateMoonDirectionFromTrajectory(positions);
+      let bestIndex = 0;
+      let bestErr = Infinity;
+      for (let i = 0; i < n; i++) {
+        const b = i * 3;
+        const x = positions[b];
+        const y = positions[b + 1];
+        const z = positions[b + 2];
+        const r = Math.sqrt(x * x + y * y + z * z);
+        const err = Math.abs(r - targetRadius);
+        if (err < bestErr) {
+          bestErr = err;
+          bestIndex = i;
+        }
+      }
+
+      const half = 20;
+      const iStart = Math.max(0, bestIndex - half);
+      const iEnd = Math.min(n - 1, bestIndex + half);
+      let sx = 0, sy = 0, sz = 0, c = 0;
+      for (let i = iStart; i <= iEnd; i++) {
+        const b = i * 3;
+        sx += positions[b];
+        sy += positions[b + 1];
+        sz += positions[b + 2];
+        c++;
+      }
+      const dir = new THREE.Vector3(sx / c, sy / c, sz / c);
+      if (dir.lengthSq() < 1e-10) return estimateMoonDirectionFromTrajectory(positions);
+      return dir.normalize();
+    }
+
     async function loadAscTrajectory() {
       setStatus("Loading ASC ephemeris...");
       try {
@@ -638,7 +695,11 @@
         el.earth.setAttribute("radius", String(CONFIG.earthRadiusVisual));
         el.moon.setAttribute("radius", String(CONFIG.moonRadiusVisual));
 
-        const moonPos = estimateMoonPositionFromTrajectory(state.trajectoryScaled);
+        // Place Moon at scaled Earth-Moon distance using the inferred apogee direction.
+        // This avoids dropping Moon directly onto the trajectory point cloud.
+        const moonDistScaled = CONFIG.moonDistanceKm * state.scaleFactor;
+        const moonDir = estimateMoonDirectionAtLunarDistance(state.trajectoryScaled, moonDistScaled);
+        const moonPos = moonDir.multiplyScalar(moonDistScaled);
         el.moon.object3D.position.copy(moonPos);
         el.moonLabel.object3D.position.set(moonPos.x, moonPos.y + 0.34, moonPos.z);
 
@@ -743,12 +804,166 @@
       });
     }
 
+    function initBackgroundEffects() {
+      const sceneEl = document.getElementById("scene");
+      if (!sceneEl?.object3D) return;
+
+      // ----- Star field -----
+      const starCount = CONFIG.stars.count;
+      const positions = new Float32Array(starCount * 3);
+      const sizes = new Float32Array(starCount);
+      const colors = new Float32Array(starCount * 3);
+
+      for (let i = 0; i < starCount; i++) {
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const r = CONFIG.stars.innerRadius + Math.random() * (CONFIG.stars.outerRadius - CONFIG.stars.innerRadius);
+        const sinPhi = Math.sin(phi);
+        const x = r * sinPhi * Math.cos(theta);
+        const y = r * Math.cos(phi);
+        const z = r * sinPhi * Math.sin(theta);
+        const bi = i * 3;
+        positions[bi] = x;
+        positions[bi + 1] = y;
+        positions[bi + 2] = z;
+
+        const s = 0.04 + Math.random() * 0.08;
+        sizes[i] = s;
+        colors[bi] = 0.8 + Math.random() * 0.2;
+        colors[bi + 1] = 0.8 + Math.random() * 0.2;
+        colors[bi + 2] = 0.9 + Math.random() * 0.1;
+      }
+
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      geom.setAttribute("size", new THREE.BufferAttribute(sizes.slice(), 1));
+      geom.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+
+      const mat = new THREE.PointsMaterial({
+        size: 0.08,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.95,
+        depthWrite: false,
+        sizeAttenuation: true
+      });
+
+      const stars = new THREE.Points(geom, mat);
+      stars.frustumCulled = false;
+      sceneEl.object3D.add(stars);
+      state.starsPoints = stars;
+      state.starBaseSizes = sizes;
+
+      // ----- Meteor container -----
+      state.meteorGroup = new THREE.Group();
+      sceneEl.object3D.add(state.meteorGroup);
+
+      const spawnBurst = () => {
+        for (let i = 0; i < 5; i++) spawnMeteor();
+      };
+      sceneEl.addEventListener("click", spawnBurst);
+      sceneEl.addEventListener(
+        "touchstart",
+        (e) => {
+          if (e.touches.length === 1) spawnBurst();
+        },
+        { passive: true }
+      );
+    }
+
+    function spawnMeteor() {
+      if (!state.meteorGroup) return;
+      if (state.meteors.length >= CONFIG.meteors.maxActive) return;
+
+      const headGeom = new THREE.SphereGeometry(0.06, 8, 8);
+      const headMat = new THREE.MeshBasicMaterial({ color: 0xfff2c6, transparent: true, opacity: 1 });
+      const head = new THREE.Mesh(headGeom, headMat);
+
+      const trailGeom = new THREE.CylinderGeometry(0.012, 0.03, 0.45, 8);
+      const trailMat = new THREE.MeshBasicMaterial({ color: 0xffb347, transparent: true, opacity: 0.75 });
+      const trail = new THREE.Mesh(trailGeom, trailMat);
+      trail.rotation.z = Math.PI / 2;
+      trail.position.x = -0.24;
+
+      const meteor = new THREE.Group();
+      meteor.add(head);
+      meteor.add(trail);
+
+      const start = new THREE.Vector3(
+        (Math.random() - 0.5) * 22,
+        7 + Math.random() * 8,
+        -18 - Math.random() * 14
+      );
+      meteor.position.copy(start);
+
+      const velocity = new THREE.Vector3(
+        -3.2 - Math.random() * 2.8,
+        -1.4 - Math.random() * 1.2,
+        1.0 + Math.random() * 1.2
+      );
+
+      meteor.lookAt(start.clone().add(velocity));
+      state.meteorGroup.add(meteor);
+      state.meteors.push({
+        obj: meteor,
+        vel: velocity,
+        age: 0,
+        life: 2.5 + Math.random() * 1.4,
+        headMat,
+        trailMat
+      });
+    }
+
+    function updateBackgroundEffects(dtMs, nowMs) {
+      // Twinkling stars
+      if (state.starsPoints) {
+        const sizeAttr = state.starsPoints.geometry.getAttribute("size");
+        if (sizeAttr) {
+          for (let i = 0; i < sizeAttr.count; i++) {
+            const base = state.starBaseSizes[i];
+            const twinkle = 0.72 + 0.5 * Math.sin(nowMs * 0.0012 + i * 0.37);
+            sizeAttr.array[i] = base * twinkle;
+          }
+          sizeAttr.needsUpdate = true;
+        }
+      }
+
+      // Spawn periodic meteors
+      if (nowMs - state.lastMeteorSpawnMs > CONFIG.meteors.spawnEveryMs) {
+        spawnMeteor();
+        state.lastMeteorSpawnMs = nowMs;
+      }
+
+      // Move and fade meteors
+      const dt = dtMs / 1000;
+      for (let i = state.meteors.length - 1; i >= 0; i--) {
+        const m = state.meteors[i];
+        m.age += dt;
+        m.obj.position.addScaledVector(m.vel, dt);
+        const alpha = Math.max(0, 1 - m.age / m.life);
+        m.headMat.opacity = alpha;
+        m.trailMat.opacity = alpha * 0.75;
+        if (m.age >= m.life) {
+          state.meteorGroup.remove(m.obj);
+          m.obj.traverse((o) => {
+            if (o.geometry) o.geometry.dispose?.();
+            if (o.material) o.material.dispose?.();
+          });
+          state.meteors.splice(i, 1);
+        }
+      }
+    }
+
     function animate() {
       const currentUnixMs = Date.now();
+      if (!state.lastFrameMs) state.lastFrameMs = currentUnixMs;
+      const dtMs = Math.min(80, currentUnixMs - state.lastFrameMs);
+      state.lastFrameMs = currentUnixMs;
       updateArtemisFromTime(currentUnixMs);
       updateMoon();
       faceLabelsToCamera();
       updateSelectionRect2D();
+      updateBackgroundEffects(dtMs, currentUnixMs);
       requestAnimationFrame(animate);
     }
 
@@ -757,6 +972,7 @@
       bindUi();
       bindZoomControls();
       bindSelectionControls();
+      initBackgroundEffects();
       await loadAscTrajectory();
       requestAnimationFrame(animate);
     }
