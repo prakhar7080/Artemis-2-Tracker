@@ -240,7 +240,8 @@
       meteorGroup: null,
       meteors: [],
       lastMeteorSpawnMs: 0,
-      lastFrameMs: 0
+      lastFrameMs: 0,
+      missionComplete: false
     };
 
     const ui = {
@@ -768,11 +769,17 @@
 
       ui.timeValue.textContent = new Date(nowMs).toISOString().replace(".000", "");
       const rangeKm = Math.sqrt(eciNow.x * eciNow.x + eciNow.y * eciNow.y + eciNow.z * eciNow.z);
-      ui.rangeValue.textContent = `${Math.round(rangeKm).toLocaleString()} km`;
+      const adjustedKm = Math.max(0, rangeKm - 6300);
+      ui.rangeValue.textContent = `${Math.round(adjustedKm).toLocaleString()} km`;
 
-      if (eciNow.clamped) {
+      if (!state.missionComplete && adjustedKm <= 0.5) {
+        state.missionComplete = true;
+        setStatus("Mission complete ✅");
+      }
+
+      if (!state.missionComplete && eciNow.clamped) {
         setStatus("Current time outside ephemeris range, showing nearest valid state", "warn");
-      } else {
+      } else if (!state.missionComplete) {
         setStatus("Tracking real-time spacecraft state");
       }
 
