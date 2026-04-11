@@ -339,6 +339,14 @@
       justify-content: space-between;
       gap: 10px;
       margin-bottom: 10px;
+      cursor: grab;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    #youtubePanel.youtube-panel-dragging .youtube-panel-head {
+      cursor: grabbing;
     }
 
     .youtube-panel-head .youtube-panel-title {
@@ -357,6 +365,8 @@
       background: rgba(42, 184, 255, 0.2);
       color: #b8e8ff;
       border: 1px solid rgba(42, 184, 255, 0.45);
+      cursor: pointer;
+      touch-action: manipulation;
     }
 
     .youtube-cut-btn[aria-pressed="true"] {
@@ -691,7 +701,7 @@
   </aside>
 
   <aside id="youtubePanel" aria-label="YouTube embed">
-    <div class="youtube-panel-head">
+    <div class="youtube-panel-head" title="Drag to move">
       <p class="photo-panel-title youtube-panel-title">Video</p>
       <button
         type="button"
@@ -1495,6 +1505,134 @@
       if (startCut) applyYoutubeCut(true);
     }
 
+    const YOUTUBE_PANEL_POS_KEY = "artemis-youtube-panel-pos";
+
+    function bindYoutubePanelDrag() {
+      const panel = document.getElementById("youtubePanel");
+      const head = panel?.querySelector(".youtube-panel-head");
+      if (!panel || !head) return;
+
+      let dragging = false;
+      let startPointerX = 0;
+      let startPointerY = 0;
+      let startLeft = 0;
+      let startTop = 0;
+
+      function clampToViewport(left, top) {
+        const pad = 6;
+        const vw = window.visualViewport?.width ?? window.innerWidth;
+        const vh = window.visualViewport?.height ?? window.innerHeight;
+        const offL = window.visualViewport?.offsetLeft ?? 0;
+        const offT = window.visualViewport?.offsetTop ?? 0;
+        const w = panel.offsetWidth;
+        const h = panel.offsetHeight;
+        const minL = offL + pad;
+        const minT = offT + pad;
+        const maxL = offL + vw - w - pad;
+        const maxT = offT + vh - h - pad;
+        return {
+          left: Math.min(maxL, Math.max(minL, left)),
+          top: Math.min(maxT, Math.max(minT, top))
+        };
+      }
+
+      function applySavedPosition() {
+        try {
+          const raw = localStorage.getItem(YOUTUBE_PANEL_POS_KEY);
+          if (!raw) return;
+          const o = JSON.parse(raw);
+          const left = Number(o.left);
+          const top = Number(o.top);
+          if (!Number.isFinite(left) || !Number.isFinite(top)) return;
+          panel.classList.add("youtube-panel-user-pos");
+          panel.style.right = "auto";
+          panel.style.bottom = "auto";
+          const c = clampToViewport(left, top);
+          panel.style.left = `${c.left}px`;
+          panel.style.top = `${c.top}px`;
+        } catch (_) {
+          /* ignore */
+        }
+      }
+
+      function persistPosition() {
+        const r = panel.getBoundingClientRect();
+        try {
+          localStorage.setItem(YOUTUBE_PANEL_POS_KEY, JSON.stringify({ left: r.left, top: r.top }));
+        } catch (_) {
+          /* ignore */
+        }
+      }
+
+      function reclampPosition() {
+        if (!panel.classList.contains("youtube-panel-user-pos")) return;
+        const r = panel.getBoundingClientRect();
+        const c = clampToViewport(r.left, r.top);
+        panel.style.left = `${c.left}px`;
+        panel.style.top = `${c.top}px`;
+      }
+
+      applySavedPosition();
+
+      window.addEventListener("resize", reclampPosition);
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", reclampPosition);
+        window.visualViewport.addEventListener("scroll", reclampPosition);
+      }
+
+      function endDrag(e) {
+        if (!dragging) return;
+        dragging = false;
+        panel.classList.remove("youtube-panel-dragging");
+        try {
+          if (head.hasPointerCapture(e.pointerId)) head.releasePointerCapture(e.pointerId);
+        } catch (_) {
+          /* ignore */
+        }
+        persistPosition();
+      }
+
+      head.addEventListener(
+        "pointerdown",
+        (e) => {
+          if (e.pointerType === "mouse" && e.button !== 0) return;
+          if (e.target.closest("#youtubeCutBtn")) return;
+          e.preventDefault();
+          dragging = true;
+          panel.classList.add("youtube-panel-dragging");
+          head.setPointerCapture(e.pointerId);
+
+          if (!panel.classList.contains("youtube-panel-user-pos")) {
+            const r0 = panel.getBoundingClientRect();
+            panel.classList.add("youtube-panel-user-pos");
+            panel.style.right = "auto";
+            panel.style.bottom = "auto";
+            panel.style.left = `${r0.left}px`;
+            panel.style.top = `${r0.top}px`;
+          }
+
+          const r = panel.getBoundingClientRect();
+          startLeft = r.left;
+          startTop = r.top;
+          startPointerX = e.clientX;
+          startPointerY = e.clientY;
+        },
+        { passive: false }
+      );
+
+      head.addEventListener("pointermove", (e) => {
+        if (!dragging) return;
+        const dx = e.clientX - startPointerX;
+        const dy = e.clientY - startPointerY;
+        const c = clampToViewport(startLeft + dx, startTop + dy);
+        panel.style.left = `${c.left}px`;
+        panel.style.top = `${c.top}px`;
+      });
+
+      head.addEventListener("pointerup", endDrag);
+      head.addEventListener("pointercancel", endDrag);
+    }
+
     function buildWelcomeConfetti() {
       const root = document.getElementById("welcomeConfetti");
       if (!root || state.welcomeConfettiBuilt) return;
@@ -1722,6 +1860,7 @@
       renderPhotoGrid();
       bindYoutubeCutToggle();
       applyYoutubeEmbed();
+      bindYoutubePanelDrag();
       bindZoomControls();
       bindSelectionControls();
       bindWelcomePopup();
