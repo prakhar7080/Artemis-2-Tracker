@@ -128,6 +128,29 @@
         max-height: none;
         padding: 8px 10px;
       }
+
+      body.photos-cut:not(.youtube-cut) #photoPanel {
+        max-height: none;
+        padding: 8px 10px;
+        bottom: calc(12px + var(--safe-bottom));
+        overflow: visible;
+      }
+
+      body.photos-cut:not(.youtube-cut) #youtubePanel {
+        bottom: calc(12px + 52px + 56px + var(--safe-bottom));
+      }
+
+      body.youtube-cut.photos-cut #photoPanel {
+        bottom: calc(12px + 52px + var(--safe-bottom));
+        max-height: none;
+        padding: 8px 10px;
+      }
+
+      body.youtube-cut.photos-cut #youtubePanel {
+        bottom: calc(12px + var(--safe-bottom));
+        max-height: none;
+        padding: 8px 10px;
+      }
     }
 
     @media (max-width: 600px) {
@@ -228,6 +251,28 @@
         padding: 6px 8px;
       }
 
+      body.photos-cut:not(.youtube-cut) #photoPanel {
+        max-height: none;
+        padding: 6px 8px;
+        bottom: calc(8px + var(--safe-bottom));
+        overflow: visible;
+      }
+
+      body.photos-cut:not(.youtube-cut) #youtubePanel {
+        bottom: calc(8px + 50px + 52px + var(--safe-bottom));
+      }
+
+      body.youtube-cut.photos-cut #photoPanel {
+        bottom: calc(8px + 50px + var(--safe-bottom));
+        max-height: none;
+        padding: 6px 8px;
+      }
+
+      body.youtube-cut.photos-cut #youtubePanel {
+        bottom: calc(8px + var(--safe-bottom));
+        padding: 6px 8px;
+      }
+
       .youtube-cut-btn {
         min-height: 44px;
         padding: 10px 14px;
@@ -285,6 +330,28 @@
         max-height: none;
       }
 
+      body.photos-cut:not(.youtube-cut) #photoPanel {
+        max-height: none;
+        padding: 6px 8px;
+        bottom: calc(8px + var(--safe-bottom));
+        overflow: visible;
+      }
+
+      body.photos-cut:not(.youtube-cut) #youtubePanel {
+        bottom: calc(8px + 46px + 48px + var(--safe-bottom));
+      }
+
+      body.youtube-cut.photos-cut #photoPanel {
+        bottom: calc(8px + 46px + var(--safe-bottom));
+        max-height: none;
+        padding: 6px 8px;
+      }
+
+      body.youtube-cut.photos-cut #youtubePanel {
+        bottom: calc(8px + var(--safe-bottom));
+        max-height: none;
+      }
+
       .welcome-inner {
         padding: 16px 14px;
       }
@@ -333,7 +400,8 @@
       line-height: 1.35;
     }
 
-    .youtube-panel-head {
+    .youtube-panel-head,
+    .photo-panel-head {
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -345,14 +413,24 @@
       -webkit-user-select: none;
     }
 
-    #youtubePanel.youtube-panel-dragging .youtube-panel-head {
+    #youtubePanel.youtube-panel-dragging .youtube-panel-head,
+    #photoPanel.photo-panel-dragging .photo-panel-head {
       cursor: grabbing;
     }
 
-    .youtube-panel-head .youtube-panel-title {
+    .youtube-panel-head .youtube-panel-title,
+    .photo-panel-head .photo-panel-title {
       margin: 0;
       flex: 1;
       min-width: 0;
+    }
+
+    body.photos-cut #photoPanel .photo-panel-body {
+      display: none;
+    }
+
+    body.photos-cut #photoPanel .photo-panel-head {
+      margin-bottom: 0;
     }
 
     .youtube-cut-btn {
@@ -696,8 +774,21 @@
   </div>
 
   <aside id="photoPanel" aria-label="Mission photos">
-    <p class="photo-panel-title">Photos</p>
-    <div id="photoGrid" class="photo-grid"></div>
+    <div class="photo-panel-head" title="Drag to move">
+      <p class="photo-panel-title">Photos</p>
+      <button
+        type="button"
+        id="photoCutBtn"
+        class="youtube-cut-btn"
+        aria-pressed="false"
+        aria-label="Close photos panel"
+      >
+        X
+      </button>
+    </div>
+    <div class="photo-panel-body">
+      <div id="photoGrid" class="photo-grid"></div>
+    </div>
   </aside>
 
   <aside id="youtubePanel" aria-label="YouTube embed">
@@ -1505,11 +1596,50 @@
       if (startCut) applyYoutubeCut(true);
     }
 
-    const YOUTUBE_PANEL_POS_KEY = "artemis-youtube-panel-pos";
+    const PHOTOS_CUT_STORAGE_KEY = "artemis-photos-cut";
 
-    function bindYoutubePanelDrag() {
-      const panel = document.getElementById("youtubePanel");
-      const head = panel?.querySelector(".youtube-panel-head");
+    function bindPhotoCutToggle() {
+      const btn = document.getElementById("photoCutBtn");
+      if (!btn) return;
+
+      function applyPhotosCut(cut) {
+        document.body.classList.toggle("photos-cut", cut);
+        btn.setAttribute("aria-pressed", cut ? "true" : "false");
+        btn.textContent = cut ? "Show" : "X";
+        btn.setAttribute("aria-label", cut ? "Show photos panel" : "Close photos panel");
+        try {
+          sessionStorage.setItem(PHOTOS_CUT_STORAGE_KEY, cut ? "1" : "");
+        } catch (_) {
+          /* ignore */
+        }
+      }
+
+      btn.addEventListener("click", () => {
+        applyPhotosCut(!document.body.classList.contains("photos-cut"));
+      });
+
+      let startCut = false;
+      try {
+        startCut = sessionStorage.getItem(PHOTOS_CUT_STORAGE_KEY) === "1";
+      } catch (_) {
+        /* ignore */
+      }
+      if (startCut) applyPhotosCut(true);
+    }
+
+    const YOUTUBE_PANEL_POS_KEY = "artemis-youtube-panel-pos";
+    const PHOTO_PANEL_POS_KEY = "artemis-photo-panel-pos";
+
+    function bindMovablePanel({
+      panelId,
+      headSelector,
+      cutButtonSelector,
+      posStorageKey,
+      userPosClass,
+      draggingClass
+    }) {
+      const panel = document.getElementById(panelId);
+      const head = panel?.querySelector(headSelector);
       if (!panel || !head) return;
 
       let dragging = false;
@@ -1538,13 +1668,13 @@
 
       function applySavedPosition() {
         try {
-          const raw = localStorage.getItem(YOUTUBE_PANEL_POS_KEY);
+          const raw = localStorage.getItem(posStorageKey);
           if (!raw) return;
           const o = JSON.parse(raw);
           const left = Number(o.left);
           const top = Number(o.top);
           if (!Number.isFinite(left) || !Number.isFinite(top)) return;
-          panel.classList.add("youtube-panel-user-pos");
+          panel.classList.add(userPosClass);
           panel.style.right = "auto";
           panel.style.bottom = "auto";
           const c = clampToViewport(left, top);
@@ -1558,14 +1688,14 @@
       function persistPosition() {
         const r = panel.getBoundingClientRect();
         try {
-          localStorage.setItem(YOUTUBE_PANEL_POS_KEY, JSON.stringify({ left: r.left, top: r.top }));
+          localStorage.setItem(posStorageKey, JSON.stringify({ left: r.left, top: r.top }));
         } catch (_) {
           /* ignore */
         }
       }
 
       function reclampPosition() {
-        if (!panel.classList.contains("youtube-panel-user-pos")) return;
+        if (!panel.classList.contains(userPosClass)) return;
         const r = panel.getBoundingClientRect();
         const c = clampToViewport(r.left, r.top);
         panel.style.left = `${c.left}px`;
@@ -1583,7 +1713,7 @@
       function endDrag(e) {
         if (!dragging) return;
         dragging = false;
-        panel.classList.remove("youtube-panel-dragging");
+        panel.classList.remove(draggingClass);
         try {
           if (head.hasPointerCapture(e.pointerId)) head.releasePointerCapture(e.pointerId);
         } catch (_) {
@@ -1596,15 +1726,15 @@
         "pointerdown",
         (e) => {
           if (e.pointerType === "mouse" && e.button !== 0) return;
-          if (e.target.closest("#youtubeCutBtn")) return;
+          if (e.target.closest(cutButtonSelector)) return;
           e.preventDefault();
           dragging = true;
-          panel.classList.add("youtube-panel-dragging");
+          panel.classList.add(draggingClass);
           head.setPointerCapture(e.pointerId);
 
-          if (!panel.classList.contains("youtube-panel-user-pos")) {
+          if (!panel.classList.contains(userPosClass)) {
             const r0 = panel.getBoundingClientRect();
-            panel.classList.add("youtube-panel-user-pos");
+            panel.classList.add(userPosClass);
             panel.style.right = "auto";
             panel.style.bottom = "auto";
             panel.style.left = `${r0.left}px`;
@@ -1859,8 +1989,24 @@
       bindUi();
       renderPhotoGrid();
       bindYoutubeCutToggle();
+      bindPhotoCutToggle();
       applyYoutubeEmbed();
-      bindYoutubePanelDrag();
+      bindMovablePanel({
+        panelId: "youtubePanel",
+        headSelector: ".youtube-panel-head",
+        cutButtonSelector: "#youtubeCutBtn",
+        posStorageKey: YOUTUBE_PANEL_POS_KEY,
+        userPosClass: "youtube-panel-user-pos",
+        draggingClass: "youtube-panel-dragging"
+      });
+      bindMovablePanel({
+        panelId: "photoPanel",
+        headSelector: ".photo-panel-head",
+        cutButtonSelector: "#photoCutBtn",
+        posStorageKey: PHOTO_PANEL_POS_KEY,
+        userPosClass: "photo-panel-user-pos",
+        draggingClass: "photo-panel-dragging"
+      });
       bindZoomControls();
       bindSelectionControls();
       bindWelcomePopup();
