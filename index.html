@@ -418,6 +418,11 @@
       cursor: grabbing;
     }
 
+    #youtubePanel.youtube-panel-dragging,
+    #photoPanel.photo-panel-dragging {
+      touch-action: none;
+    }
+
     .youtube-panel-head .youtube-panel-title,
     .photo-panel-head .photo-panel-title {
       margin: 0;
@@ -1082,6 +1087,23 @@
       return Math.sqrt(dx * dx + dy * dy);
     }
 
+    function isClientOverMissionChrome(clientX, clientY) {
+      const ids = ["ui", "photoPanel", "youtubePanel"];
+      for (let i = 0; i < ids.length; i++) {
+        const el = document.getElementById(ids[i]);
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 2 || r.height < 2) continue;
+        if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) return true;
+      }
+      const welcome = document.getElementById("welcomeOverlay");
+      if (welcome?.classList.contains("is-open")) {
+        const r = welcome.getBoundingClientRect();
+        if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) return true;
+      }
+      return false;
+    }
+
     function bindZoomControls() {
       setCameraDistance(CONFIG.zoom.default);
 
@@ -1114,6 +1136,13 @@
         "touchmove",
         (event) => {
           if (event.touches.length !== 2) {
+            state.pinchDistancePx = null;
+            return;
+          }
+          if (
+            isClientOverMissionChrome(event.touches[0].clientX, event.touches[0].clientY) ||
+            isClientOverMissionChrome(event.touches[1].clientX, event.touches[1].clientY)
+          ) {
             state.pinchDistancePx = null;
             return;
           }
@@ -1630,6 +1659,23 @@
     const YOUTUBE_PANEL_POS_KEY = "artemis-youtube-panel-pos";
     const PHOTO_PANEL_POS_KEY = "artemis-photo-panel-pos";
 
+    let movablePanelTouchBlockCount = 0;
+    function preventTouchMoveDefaultsWhileDraggingPanel(e) {
+      if (e.cancelable) e.preventDefault();
+    }
+    function beginMovablePanelDocumentTouchLock() {
+      movablePanelTouchBlockCount++;
+      if (movablePanelTouchBlockCount === 1) {
+        document.addEventListener("touchmove", preventTouchMoveDefaultsWhileDraggingPanel, { passive: false });
+      }
+    }
+    function endMovablePanelDocumentTouchLock() {
+      movablePanelTouchBlockCount = Math.max(0, movablePanelTouchBlockCount - 1);
+      if (movablePanelTouchBlockCount === 0) {
+        document.removeEventListener("touchmove", preventTouchMoveDefaultsWhileDraggingPanel, { passive: false });
+      }
+    }
+
     function bindMovablePanel({
       panelId,
       headSelector,
@@ -1713,6 +1759,7 @@
       function endDrag(e) {
         if (!dragging) return;
         dragging = false;
+        endMovablePanelDocumentTouchLock();
         panel.classList.remove(draggingClass);
         try {
           if (head.hasPointerCapture(e.pointerId)) head.releasePointerCapture(e.pointerId);
@@ -1729,6 +1776,7 @@
           if (e.target.closest(cutButtonSelector)) return;
           e.preventDefault();
           dragging = true;
+          beginMovablePanelDocumentTouchLock();
           panel.classList.add(draggingClass);
           head.setPointerCapture(e.pointerId);
 
@@ -1750,14 +1798,19 @@
         { passive: false }
       );
 
-      head.addEventListener("pointermove", (e) => {
-        if (!dragging) return;
-        const dx = e.clientX - startPointerX;
-        const dy = e.clientY - startPointerY;
-        const c = clampToViewport(startLeft + dx, startTop + dy);
-        panel.style.left = `${c.left}px`;
-        panel.style.top = `${c.top}px`;
-      });
+      head.addEventListener(
+        "pointermove",
+        (e) => {
+          if (!dragging) return;
+          if (e.pointerType === "touch" && e.cancelable) e.preventDefault();
+          const dx = e.clientX - startPointerX;
+          const dy = e.clientY - startPointerY;
+          const c = clampToViewport(startLeft + dx, startTop + dy);
+          panel.style.left = `${c.left}px`;
+          panel.style.top = `${c.top}px`;
+        },
+        { passive: false }
+      );
 
       head.addEventListener("pointerup", endDrag);
       head.addEventListener("pointercancel", endDrag);
