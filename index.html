@@ -4,6 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>Artemis Mission Viewer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Rajdhani:wght@500;600&display=swap"
+    rel="stylesheet"
+  />
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
   <style>
     :root {
@@ -42,6 +48,135 @@
       border: 1px solid var(--line);
       background: var(--panel);
       backdrop-filter: blur(8px);
+    }
+
+    /* Photo gallery (matches #ui panel styling) */
+    #photoPanel {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      z-index: 30;
+      width: min(360px, calc(100vw - 24px));
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      backdrop-filter: blur(8px);
+    }
+
+    @media (max-width: 860px) {
+      /* Avoid overlapping the left control panel on small screens */
+      #photoPanel {
+        top: auto;
+        bottom: 12px;
+        left: 12px;
+        right: 12px;
+        width: auto;
+      }
+      /* Stack YouTube above the full-width photo strip (approx. height) */
+      #youtubePanel {
+        bottom: 220px;
+        left: 12px;
+        right: 12px;
+        width: auto;
+      }
+    }
+
+    .photo-panel-title {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      margin: 0 0 10px;
+    }
+
+    .photo-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .photo-cell {
+      position: relative;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(0, 0, 0, 0.35);
+      aspect-ratio: 4 / 3;
+    }
+
+    .photo-cell img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .photo-placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px;
+      color: rgba(230, 238, 255, 0.55);
+      font-size: 12px;
+      text-align: center;
+      line-height: 1.35;
+    }
+
+    /* YouTube embed (same panel style as #ui) */
+    #youtubePanel {
+      position: fixed;
+      bottom: 12px;
+      left: 12px;
+      z-index: 30;
+      width: min(380px, calc(100vw - 24px));
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      backdrop-filter: blur(8px);
+    }
+
+    .youtube-frame-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(0, 0, 0, 0.45);
+    }
+
+    #youtubeEmbed {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      display: none;
+    }
+
+    #youtubeEmbed.is-active {
+      display: block;
+    }
+
+    .youtube-placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px;
+      color: rgba(230, 238, 255, 0.55);
+      font-size: 12px;
+      text-align: center;
+      line-height: 1.4;
+    }
+
+    .youtube-placeholder.is-hidden {
+      display: none;
     }
 
     .row {
@@ -129,9 +264,156 @@
       display: none;
       box-shadow: 0 0 0 1px rgba(0,0,0,0.7), 0 0 14px rgba(255,255,255,0.25);
     }
+
+    /* Welcome popup (mission complete style banner) */
+    #welcomeOverlay {
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      background: rgba(0, 0, 0, 0.72);
+      backdrop-filter: blur(6px);
+      pointer-events: none;
+    }
+
+    #welcomeOverlay.is-open {
+      display: flex;
+      pointer-events: auto;
+    }
+
+    .welcome-card {
+      position: relative;
+      width: min(920px, calc(100vw - 32px));
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid rgba(42, 184, 255, 0.35);
+      background: radial-gradient(1200px 500px at 50% 0%, rgba(42, 184, 255, 0.12), rgba(0, 0, 0, 0.92) 55%);
+      box-shadow: 0 18px 60px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+    }
+
+    .welcome-confetti {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    .confetti {
+      position: absolute;
+      width: 8px;
+      height: 12px;
+      opacity: 0.95;
+      transform: rotate(12deg);
+      animation: confettiFall 2.8s linear infinite;
+    }
+
+    @keyframes confettiFall {
+      0% {
+        transform: translate3d(calc(var(--dx, 0px) * -1), -18px, 0) rotate(0deg);
+        opacity: 0;
+      }
+      10% {
+        opacity: 1;
+      }
+      100% {
+        transform: translate3d(var(--dx, 0px), 220px, 0) rotate(360deg);
+        opacity: 0.85;
+      }
+    }
+
+    .welcome-inner {
+      position: relative;
+      padding: 26px 22px 22px;
+      text-align: center;
+    }
+
+    .welcome-headline {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin: 0 0 10px;
+    }
+
+    .earth-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 55%),
+        radial-gradient(circle at 35% 40%, #2ecc71 0 18%, rgba(46, 204, 113, 0) 20%),
+        radial-gradient(circle at 62% 58%, #2ecc71 0 16%, rgba(46, 204, 113, 0) 18%),
+        radial-gradient(circle at 55% 35%, #2ecc71 0 12%, rgba(46, 204, 113, 0) 14%),
+        linear-gradient(135deg, #1b6cff, #0b3f9a);
+      box-shadow: 0 0 22px rgba(42, 184, 255, 0.85), 0 0 0 2px rgba(255, 255, 255, 0.12) inset;
+    }
+
+    .welcome-title {
+      font-family: "Orbitron", system-ui, sans-serif;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      font-size: clamp(18px, 4.2vw, 34px);
+      color: #ffffff;
+      text-shadow:
+        0 0 10px rgba(42, 184, 255, 0.95),
+        0 0 26px rgba(42, 184, 255, 0.65),
+        0 0 60px rgba(42, 184, 255, 0.35);
+    }
+
+    .welcome-sub {
+      margin: 0 0 8px;
+      font-family: "Rajdhani", system-ui, sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: #5fe8ff;
+      font-size: clamp(12px, 2.2vw, 16px);
+    }
+
+    .welcome-crew {
+      margin: 0;
+      font-family: "Rajdhani", system-ui, sans-serif;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(230, 238, 255, 0.82);
+      font-size: clamp(11px, 1.9vw, 14px);
+    }
+
+    .welcome-close {
+      margin-top: 16px;
+      border: 0;
+      border-radius: 12px;
+      padding: 10px 18px;
+      font-weight: 700;
+      cursor: pointer;
+      background: linear-gradient(135deg, #2ab8ff, #1f7cff);
+      color: #fff;
+      box-shadow: 0 10px 30px rgba(42, 184, 255, 0.35);
+    }
   </style>
 </head>
 <body>
+  <div id="welcomeOverlay" aria-hidden="true">
+    <div class="welcome-card" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
+      <div class="welcome-confetti" id="welcomeConfetti"></div>
+      <div class="welcome-inner">
+        <div class="welcome-headline">
+          <div class="earth-icon" aria-hidden="true"></div>
+          <h1 class="welcome-title" id="welcomeTitle">WELCOME BACK TO EARTH!</h1>
+        </div>
+        <p class="welcome-sub">Mission Artemis II — Complete</p>
+        <p class="welcome-crew">WISEMAN · GLOVER · KOCH · HANSEN — SAFELY HOME</p>
+        <button type="button" class="welcome-close" id="welcomeCloseBtn">Continue</button>
+      </div>
+    </div>
+  </div>
+
   <div id="selectionRect"></div>
   <div id="ui">
     <div class="row"><span class="label">Mode</span><span id="modeValue" class="value">Mission view</span></div>
@@ -153,6 +435,28 @@
       </div>
     </div>
   </div>
+
+  <aside id="photoPanel" aria-label="Mission photos">
+    <p class="photo-panel-title">Photos</p>
+    <div id="photoGrid" class="photo-grid"></div>
+  </aside>
+
+  <aside id="youtubePanel" aria-label="YouTube embed">
+    <p class="photo-panel-title">Video</p>
+    <div class="youtube-frame-wrap">
+      <iframe
+        id="youtubeEmbed"
+        title="YouTube video player"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowfullscreen
+        loading="lazy"
+        referrerpolicy="strict-origin-when-cross-origin"
+      ></iframe>
+      <div id="youtubePlaceholder" class="youtube-placeholder">
+        Paste your embed URL in <strong>CONFIG.youtubeEmbedUrl</strong> (e.g. https://www.youtube.com/embed/VIDEO_ID)
+      </div>
+    </div>
+  </aside>
 
   <a-scene
     id="scene"
@@ -222,7 +526,11 @@
       meteors: {
         spawnEveryMs: 2200,
         maxActive: 12
-      }
+      },
+      // Paste image URLs here (leave as "" until you add links). Grid is max 2 columns; rows grow automatically.
+      photoUrls: ["https://www.seti.org/media/jgyhxn1u/four-astronauts-of-artemis-2-nasa-frank-michaux_1024.jpg", "https://dq0hsqwjhea1.cloudfront.net/DonDavis-Artemis2.jpg", "https://media.wired.com/photos/69d54188e378a93eb5dc3de9/3:2/w_2560%2Cc_limit/HFTX7pOXcAAKs3G.jpeg", "https://cdn.abcotvs.com/dip/images/18848726_040626-cc-ap-nasa-artemis-ii-moon-apollo-record-2-img.jpg", "https://imageio.forbes.com/specials-images/imageserve/699a22d13b3ccfca2b26da7f/KSC-20260210-PH-JBS01-0126-large/0x0.jpg?format=jpg&width=480", "https://ichef.bbci.co.uk/ace/standard/1024/cpsprodpb/fe7c/live/20c1cec0-2e36-11f1-9d97-9dce4aa3d282.jpg", "https://cdn.mos.cms.futurecdn.net/2NrqVWr8P5MiANHpgRsdh8-1200-80.jpg", "https://scx1.b-cdn.net/csz/news/800a/2023/nasas-orion-capsule-af.jpg"],
+      // Full YouTube embed URL — leave "" until you paste (e.g. https://www.youtube.com/embed/VIDEO_ID)
+      youtubeEmbedUrl: "https://www.youtube.com/embed/Ua0d7xnPUzo"
     };
 
     const state = {
@@ -241,7 +549,8 @@
       meteors: [],
       lastMeteorSpawnMs: 0,
       lastFrameMs: 0,
-      missionComplete: false
+      missionComplete: false,
+      welcomeConfettiBuilt: false
     };
 
     const ui = {
@@ -267,7 +576,8 @@
       earthLabel: document.getElementById("earthLabel"),
       moonLabel: document.getElementById("moonLabel"),
       trajectoryLine: document.getElementById("trajectoryLine"),
-      selectionRect: document.getElementById("selectionRect")
+      selectionRect: document.getElementById("selectionRect"),
+      photoGrid: document.getElementById("photoGrid")
     };
 
     function setStatus(text, tone = "ok") {
@@ -820,6 +1130,110 @@
       });
     }
 
+    function renderPhotoGrid() {
+      const root = el.photoGrid;
+      if (!root) return;
+      root.innerHTML = "";
+
+      const urls = Array.isArray(CONFIG.photoUrls) ? CONFIG.photoUrls : [];
+      urls.forEach((rawUrl, idx) => {
+        const url = String(rawUrl || "").trim();
+        const cell = document.createElement("div");
+        cell.className = "photo-cell";
+
+        if (url) {
+          const img = document.createElement("img");
+          img.alt = `Mission photo ${idx + 1}`;
+          img.loading = "lazy";
+          img.decoding = "async";
+          img.referrerPolicy = "no-referrer";
+          img.src = url;
+          cell.appendChild(img);
+        } else {
+          const ph = document.createElement("div");
+          ph.className = "photo-placeholder";
+          ph.textContent = "Empty slot — paste a URL in CONFIG.photoUrls";
+          cell.appendChild(ph);
+        }
+
+        root.appendChild(cell);
+      });
+    }
+
+    function applyYoutubeEmbed() {
+      const iframe = document.getElementById("youtubeEmbed");
+      const ph = document.getElementById("youtubePlaceholder");
+      if (!iframe) return;
+      const url = String(CONFIG.youtubeEmbedUrl || "").trim();
+      if (url) {
+        iframe.src = url;
+        iframe.classList.add("is-active");
+        ph?.classList.add("is-hidden");
+      } else {
+        iframe.removeAttribute("src");
+        iframe.classList.remove("is-active");
+        ph?.classList.remove("is-hidden");
+      }
+    }
+
+    function buildWelcomeConfetti() {
+      const root = document.getElementById("welcomeConfetti");
+      if (!root || state.welcomeConfettiBuilt) return;
+      state.welcomeConfettiBuilt = true;
+
+      const palette = ["#ff4ecd", "#ffd400", "#ff8a3c", "#5fe8ff", "#9b5cff", "#7dff6a", "#ffffff"];
+      const count = 110;
+      for (let i = 0; i < count; i++) {
+        const piece = document.createElement("div");
+        piece.className = "confetti";
+        const w = 6 + Math.random() * 10;
+        const h = 8 + Math.random() * 14;
+        piece.style.width = `${w.toFixed(1)}px`;
+        piece.style.height = `${h.toFixed(1)}px`;
+        piece.style.left = `${Math.random() * 100}%`;
+        piece.style.top = `${Math.random() * 100}%`;
+        piece.style.background = palette[(Math.random() * palette.length) | 0];
+        piece.style.borderRadius = Math.random() < 0.35 ? "999px" : "3px";
+        piece.style.opacity = `${0.65 + Math.random() * 0.35}`;
+        piece.style.setProperty("--dx", `${(Math.random() * 2 - 1) * 140}px`);
+        piece.style.animationDuration = `${1.8 + Math.random() * 2.2}s`;
+        piece.style.animationDelay = `${Math.random() * 2.2}s`;
+        root.appendChild(piece);
+      }
+    }
+
+    function openWelcomePopup() {
+      const overlay = document.getElementById("welcomeOverlay");
+      if (!overlay) return;
+      buildWelcomeConfetti();
+      overlay.classList.add("is-open");
+      overlay.setAttribute("aria-hidden", "false");
+    }
+
+    function closeWelcomePopup() {
+      const overlay = document.getElementById("welcomeOverlay");
+      if (!overlay) return;
+      overlay.classList.remove("is-open");
+      overlay.setAttribute("aria-hidden", "true");
+    }
+
+    function bindWelcomePopup() {
+      const overlay = document.getElementById("welcomeOverlay");
+      const closeBtn = document.getElementById("welcomeCloseBtn");
+      if (!overlay) return;
+
+      closeBtn?.addEventListener("click", closeWelcomePopup);
+      overlay.addEventListener("click", (e) => {
+        if (e.target === overlay) closeWelcomePopup();
+      });
+
+      window.setTimeout(() => openWelcomePopup(), 1000);
+
+      window.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") closeWelcomePopup();
+      });
+    }
+
     function initBackgroundEffects() {
       const sceneEl = document.getElementById("scene");
       if (!sceneEl?.object3D) return;
@@ -986,8 +1400,11 @@
     async function init() {
       ui.modeValue.textContent = "Mission view";
       bindUi();
+      renderPhotoGrid();
+      applyYoutubeEmbed();
       bindZoomControls();
       bindSelectionControls();
+      bindWelcomePopup();
       initBackgroundEffects();
       await loadAscTrajectory();
       requestAnimationFrame(animate);
