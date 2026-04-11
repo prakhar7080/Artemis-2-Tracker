@@ -769,18 +769,27 @@
 
       ui.timeValue.textContent = new Date(nowMs).toISOString().replace(".000", "");
       const rangeKm = Math.sqrt(eciNow.x * eciNow.x + eciNow.y * eciNow.y + eciNow.z * eciNow.z);
-      const adjustedKm = Math.max(0, rangeKm - 6300);
-      ui.rangeValue.textContent = `${Math.round(adjustedKm).toLocaleString()} km`;
+      // Show approximate altitude above Earth's surface (km), not distance from Earth center.
+      const altitudeKm = Math.max(0, rangeKm - CONFIG.earthRadiusKm);
 
-      if (!state.missionComplete && adjustedKm <= 0.5) {
+      const atEndOfEphemeris = Boolean(eciNow.clamped && nowMs >= state.timesMs[state.timesMs.length - 1]);
+      const nearSurface = altitudeKm <= 1.0;
+
+      if (!state.missionComplete && (atEndOfEphemeris || nearSurface)) {
         state.missionComplete = true;
         setStatus("Mission complete ✅");
       }
 
-      if (!state.missionComplete && eciNow.clamped) {
+      if (!state.missionComplete && eciNow.clamped && nowMs < state.timesMs[state.timesMs.length - 1]) {
         setStatus("Current time outside ephemeris range, showing nearest valid state", "warn");
       } else if (!state.missionComplete) {
         setStatus("Tracking real-time spacecraft state");
+      }
+
+      if (state.missionComplete) {
+        ui.rangeValue.textContent = "0 km";
+      } else {
+        ui.rangeValue.textContent = `${Math.round(altitudeKm).toLocaleString()} km`;
       }
 
       const i0 = eciNow.i0 ?? 0;
